@@ -5,23 +5,42 @@ import io
 import unicodedata
 import os
 
-# =====================================================================
-# CONFIGURAÇÕES DE REDE E SEGURANÇA (Ajustado para proteger os seus dados)
-# =====================================================================
+# ==========================================
+# 🔌 GERENCIADOR DINÂMICO DE PROXY (SEGURO)
+# ==========================================
 
-# 1. Configuração do Proxy (Apenas o endereço do servidor, sem expor o seu usuário/senha)
-os.environ["HTTP_PROXY"] = "http://proxy.seduc.intra.rs.gov.br:3128"
-os.environ["HTTPS_PROXY"] = "http://proxy.seduc.intra.rs.gov.br:3128"
+# Inicializa o controle de conexão no session_state para não perder as configurações
+if "proxy_tipo" not in st.session_state:
+    st.session_state["proxy_tipo"] = "Padrão (Sem Autenticação)"
 
-# 2. Garante que o Python ignore o proxy para comunicações locais do Streamlit
-os.environ["NO_PROXY"] = "localhost,127.0.0.1,127.0.0.1:8501,localhost:8501"
+# Configura o Proxy no Python de acordo com a escolha do usuário
+if st.session_state["proxy_tipo"] == "Autenticado (SEDUC)":
+    user = st.session_state.get("proxy_user", "")
+    pwd = st.session_state.get("proxy_password", "")
+    if user and pwd:
+        os.environ["HTTP_PROXY"] = f"http://{user}:{pwd}@proxy.seduc.intra.rs.gov.br:3128"
+        os.environ["HTTPS_PROXY"] = f"http://{user}:{pwd}@proxy.seduc.intra.rs.gov.br:3128"
+elif st.session_state["proxy_tipo"] == "Sem Proxy (Conexão Direta)":
+    # Remove as variáveis para garantir que o Python não tente usar o proxy
+    os.environ.pop("HTTP_PROXY", None)
+    os.environ.pop("HTTPS_PROXY", None)
+else:
+    # Padrão: Tenta usar o proxy da SEDUC sem autenticação explícita no código
+    os.environ["HTTP_PROXY"] = "http://proxy.seduc.intra.rs.gov.br:3128"
+    os.environ["HTTPS_PROXY"] = "http://proxy.seduc.intra.rs.gov.br:3128"
 
+# Evita que o Streamlit tente rotear as comunicações internas do navegador pelo proxy
+os.environ["NO_PROXY"] = "localhost,127.0.0.1,localhost:8501,127.0.0.1:8501"
+
+# ==========================================
+# CONFIGURAÇÕES DA APLICAÇÃO
+# ==========================================
 SENHA_DO_PAINEL = "senha123"
 URL_DA_PLANILHA = "https://docs.google.com/spreadsheets/d/1c0UKQiMhQdz1GPBQYC4q3SItdDxKNXKffVZF231Z8L4/edit?gid=79367712#gid=79367712"
 
 st.set_page_config(page_title="Painel de Telefonia", layout="wide", page_icon="📞")
 
-# --- ESTILIZAÇÃO CSS ---
+# Estilização visual (CSS)
 st.markdown("""
     <style>
     .stApp { background-color: #f8f9fa; }
@@ -40,7 +59,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-
 def criar_card_html(titulo, valor, cor_topo, info_extra=""):
     return f"""
     <div style="
@@ -55,13 +73,13 @@ def criar_card_html(titulo, valor, cor_topo, info_extra=""):
         font-family: 'Segoe UI', Arial, sans-serif;
     ">
         <div style="color: #6c757d; font-size: 14px; font-weight: 600; margin-bottom: 8px; text-transform: uppercase;">{titulo}</div>
-        <div style="color: #212529; font-size: 38px; font-weight: 700; margin-bottom: 4px;">{valor}</div>
+        <div style="color: #212529; font-size: 38px; font-weight: 700; margin-bottom: 4px;">{value_placeholder}</div>
         <div style="color: #868e96; font-size: 11px; font-weight: 500; line-height: 1.4;">{info_extra}</div>
     </div>
-    """
+    """.replace("{value_placeholder}", str(valor))
 
 
-# Autenticação de Acesso
+# Tela de Autenticação de Usuário (Acesso ao Painel)
 if "autenticado" not in st.session_state:
     st.session_state["autenticado"] = False
 
@@ -102,14 +120,12 @@ def converter_link_sheets(url):
 try:
     url_exportacao = converter_link_sheets(URL_DA_PLANILHA)
 
-
     @st.cache_data(ttl=60)
     def puxar_todas_planilhas(url):
         return pd.read_excel(url, sheet_name=None)
 
-
-    with st.spinner("🔄 Conectando ao Google Sheets e processando colunas..."):
-        dicionario_planilhas = puxar_todas_planilhas(url_exportacao)
+    # Tenta puxar os dados
+    dicionario_planilhas = puxar_todas_planilhas(url_exportacao)
 
     nome_aba_principal = list(dicionario_planilhas.keys())[0]
     df = dicionario_planilhas[nome_aba_principal].copy()
@@ -126,13 +142,11 @@ try:
         for c in df.columns
     ]
 
-
     def mapear_coluna(termos_chave):
         for original, limpa in zip(df.columns.tolist(), colunas_limpas):
             if any(t in limpa for t in termos_chave):
                 return original
         return None
-
 
     col_escola = mapear_coluna(["nome da escola", "escola"])
     col_idt = mapear_coluna(["idt da escola", "idt"])
@@ -150,9 +164,7 @@ try:
     if col_idt: df[col_idt] = df[col_idt].str.replace(".0", "", regex=False)
     if col_cre: df[col_cre] = df[col_cre].str.replace(".0", "", regex=False)
 
-    # ==========================================
-    # PROCESSAMENTO DAS MÁSCARAS E REGRAS DE NEGÓCIO
-    # ==========================================
+    # Processamento de Máscaras e Regras de Negócio
     get_mask = lambda col, pattern: df[col].str.contains(pattern, case=False, na=False) if col else pd.Series(False, index=df.index)
 
     mask_migracao = get_mask(col_acao_realizada, "migra")
@@ -177,9 +189,7 @@ try:
         "Processo de Cancelamento"
     ]
 
-    # ------------------------------------------
-    # APLICAÇÃO DO MOTOR DE TRIAGEM MANUAL (OVERRIDES)
-    # ------------------------------------------
+    # Aplicação de Triagens Manuais
     for idx_linha, destino_escolhido in st.session_state["triagem_manual"].items():
         if idx_linha in df.index:
             mask_migracao.loc[idx_linha] = False
@@ -206,9 +216,6 @@ try:
             elif destino_escolhido == "Processo de Cancelamento":
                 mask_cancelamento.loc[idx_linha] = True
 
-    # ------------------------------------------
-    # CRIAÇÃO DA COLUNA VISUAL DE STATUS
-    # ------------------------------------------
     df['Status'] = "⚪ Indefinido"
     df.loc[mask_outras, 'Status'] = "🟣 Outros"
     df.loc[mask_cancelamento, 'Status'] = "🔴 Cancelamento"
@@ -231,10 +238,7 @@ try:
     porta_com_ip = (mask_portabilidade & mask_ip_ok).sum()
     porta_sem_ip = (mask_portabilidade & mask_sem_ip).sum()
 
-
-    # ==========================================
-    # JANELAS FLUTUANTES (MODAIS)
-    # ==========================================
+    # Modais e Janelas Flutuantes
     @st.dialog("Tabela de Escolas", width="large")
     def abrir_tabela(titulo, df_filtrado, colunas_exibicao, chave_tipo="comum"):
         st.subheader(titulo)
@@ -278,7 +282,6 @@ try:
                             st.warning("Por favor, selecione uma opção válida.")
             return
 
-        # Visualização Padrão de Listas
         b1, b2 = st.columns([4, 1])
         pesquisa = b1.text_input("🔍 Pesquisar na lista...", placeholder="Busque por nome, IDT ou CRE...")
         if pesquisa:
@@ -306,7 +309,6 @@ try:
         cre_selecionada = st.selectbox("Escolha a CRE para carregar os ramais:", list(abas_cres.keys()))
         df_cre_atual = abas_cres[cre_selecionada].copy()
         
-        # Tratamento de colunas vazias e mescladas
         novas_cols = []
         for c in df_cre_atual.columns:
             nome = "" if "Unnamed" in str(c) else str(c)
@@ -315,16 +317,12 @@ try:
             novas_cols.append(nome)
         df_cre_atual.columns = novas_cols
 
-        # ----------------------------------------------------
-        # 🛠️ APLICAÇÃO DAS NOVAS REGRAS DE LIMPEZA PARA AS CRES
-        # ----------------------------------------------------
+        # Aplicação das Regras de Limpeza nas CREs
         if len(df_cre_atual) > 0 and len(df_cre_atual.columns) > 2:
-            # Regra 1: Na coluna B (Índice 1), só precisamos do dado da Linha 2 (Índice 0 no pandas)
             valor_linha_2 = df_cre_atual.iloc[0, 1]
-            df_cre_atual.iloc[:, 1] = ""  # Limpa a coluna B inteira
-            df_cre_atual.iloc[0, 1] = valor_linha_2  # Restaura apenas na Linha 2 (Pandas Index 0)
+            df_cre_atual.iloc[:, 1] = ""
+            df_cre_atual.iloc[0, 1] = valor_linha_2
 
-            # Regra 2: Na coluna C (Índice 2), Ramal/Nome só aparecem se houver >= 1 softphone na linha
             col_softphone = None
             for col in df_cre_atual.columns:
                 if "soft" in str(col).lower():
@@ -354,9 +352,7 @@ try:
     cols_procergs = ['Status'] + [c for c in [col_escola, col_idt, col_novo_num, col_operadora] if c is not None]
     cols_op = ['Status'] + [c for c in [col_escola, col_operadora, col_novo_num, col_telefone] if c is not None]
 
-    # ==========================================
-    # INTERFACE PRINCIPAL - MATRIZ DE CARDS
-    # ==========================================
+    # Interface Principal
     c_head, c_refresh, c_logout = st.columns([6, 1, 1])
     c_head.markdown("<h1 style='margin:0;'>📞 Painel de Telefonia - Status Geral</h1>", unsafe_allow_html=True)
     
@@ -369,7 +365,6 @@ try:
 
     st.write("---")
 
-    # Mapeamento Dinâmico de Cartões
     cards = [
         {"title": "Total de Escolas", "val": len(df), "color": "#007bff", "info": "Base unificada forms", "df_filt": df, "cols_exib": cols_padrao, "key": "total", "type": "comum"},
         {"title": "Migração (UC4X)", "val": mask_migracao.sum(), "color": "#6c757d", "info": f"📞 Com IP: {migra_com_ip} | ❌ Sem IP: {migra_sem_ip}", "df_filt": df[mask_migracao], "cols_exib": cols_padrao, "key": "migra", "type": "comum"},
@@ -384,7 +379,6 @@ try:
         {"title": "Info Operadoras", "val": mask_operadoras.sum(), "color": "#17a2b8", "info": "Mapeamentos CNPJ", "df_filt": df[mask_operadoras], "cols_exib": cols_op, "key": "operadoras", "type": "comum"}
     ]
 
-    # Grelha de 5 Colunas
     for i in range(0, len(cards), 5):
         cols_grid = st.columns(5)
         for idx_col, card in enumerate(cards[i:i+5]):
@@ -401,7 +395,6 @@ try:
                     if st.button("Ver Detalhes", key=f"btn_{card['key']}"):
                         abrir_tabela_cres()
 
-    # --- SESSÃO DINÂMICA: CARDS CRIADOS MANUALMENTE ---
     if st.session_state["categorias_customizadas"]:
         st.write("---")
         st.markdown("<h3 style='margin:0; color:#17a2b8;'>🛠️ Categorias Personalizadas (Criadas por Você)</h3>", unsafe_allow_html=True)
@@ -418,6 +411,37 @@ try:
                     if st.button("Ver Lista", key=f"btn_dinamico_{cat_nome}"):
                         abrir_tabela(f"Escolas: {cat_nome}", df[df['Status'] == f"🔵 {cat_nome}"], cols_padrao)
 
+# ==========================================
+# 🚨 GESTÃO DE ERROS E CONFIGURAÇÃO EM TELA
+# ==========================================
 except Exception as e:
-    st.error(f"🚨 Erro crítico ao carregar ou processar dados da planilha.")
-    st.info(f"Detalhes técnicos: {e}")
+    st.error("🚨 Não foi possível carregar os dados da planilha do Google.")
+    st.warning("Geralmente isso acontece quando o proxy da SEDUC exige autenticação ou está bloqueando a conexão.")
+    
+    with st.container(border=True):
+        st.subheader("⚙️ Configurações de Conexão com a Internet")
+        st.markdown("Selecione o modo de conexão abaixo de acordo com o seu local físico atual:")
+        
+        tipo_selecionado = st.selectbox(
+            "Modo de Conexão:",
+            ["Padrão (Sem Autenticação)", "Autenticado (SEDUC)", "Sem Proxy (Conexão Direta)"],
+            index=0 if st.session_state["proxy_tipo"] == "Padrão (Sem Autenticação)" else (1 if st.session_state["proxy_tipo"] == "Autenticado (SEDUC)" else 2),
+            key="temp_proxy_tipo"
+        )
+        
+        # Se escolher Autenticado, o sistema pede o login e a senha sem salvá-los no código!
+        if tipo_selecionado == "Autenticado (SEDUC)":
+            u = st.text_input("Usuário do Windows (Seduc):", value=st.session_state.get("proxy_user", ""), placeholder="ex: joao-flores")
+            p = st.text_input("Senha do Windows (Seduc):", type="password", value=st.session_state.get("proxy_password", ""), placeholder="Sua senha...")
+            
+        if st.button("💾 Aplicar Configuração e Reconectar", use_container_width=True):
+            st.session_state["proxy_tipo"] = tipo_selecionado
+            if tipo_selecionado == "Autenticado (SEDUC)":
+                st.session_state["proxy_user"] = u
+                st.session_state["proxy_password"] = p
+            
+            # Limpa o cache para tentar baixar os dados do Google do zero
+            puxar_todas_planilhas.clear()
+            st.rerun()
+            
+    st.info(f"Detalhes técnicos do erro: {e}")
