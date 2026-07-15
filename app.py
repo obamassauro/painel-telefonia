@@ -3,6 +3,17 @@ import pandas as pd
 import re
 import io
 import unicodedata
+import os
+# Configuração correta do Proxy com Autenticação
+# Substitui 'Pi' pela tua senha real do Windows/Rede se 'Pi' tiver sido apenas um exemplo.
+os.environ["HTTP_PROXY"] = "http://joao-flores:Pi@proxy.seduc.intra.rs.gov.br:3128"
+os.environ["HTTPS_PROXY"] = "http://joao-flores:Pi@proxy.seduc.intra.rs.gov.br:3128"
+
+import streamlit as st
+import pandas as pd
+import re
+import io
+import unicodedata
 
 # ==========================================
 # CONFIGURAÇÕES INICIAIS E SEGURANÇA
@@ -153,8 +164,6 @@ try:
     if col_portabilidade: mask_portabilidade = mask_portabilidade | get_mask(col_portabilidade, "sim")
 
     mask_cancelamento = get_mask(col_acao_realizada, "cancel")
-
-    # 🔥 A MUDANÇA CRÍTICA: Filtramos e retiramos de "Outros" tudo que já é migração, portabilidade ou cancelamento
     mask_outras = get_mask(col_acao_realizada, "outr") & ~mask_migracao & ~mask_portabilidade & ~mask_cancelamento
 
     mask_ip_ok = get_mask(col_funciona_ip, "sim")
@@ -307,6 +316,45 @@ try:
                 nome += " "
             novas_cols.append(nome)
         df_cre_atual.columns = novas_cols
+
+        # ----------------------------------------------------
+        # 🛠️ APLICAÇÃO DAS NOVAS REGRAS DE LIMPEZA PARA AS CRES
+        # ----------------------------------------------------
+        if len(df_cre_atual) > 0 and len(df_cre_atual.columns) > 2:
+            # Regra 1: Na coluna B (Índice 1), só precisamos do dado da Linha 2 (Índice 0 no pandas)
+            valor_linha_2 = df_cre_atual.iloc[0, 1]
+            df_cre_atual.iloc[:, 1] = ""  # Limpa a coluna B inteira
+            df_cre_atual.iloc[0, 1] = valor_linha_2  # Restaura apenas na Linha 2 (Pandas Index 0)
+
+            # Regra 2: Na coluna C (Índice 2), Ramal/Nome só aparecem se houver >= 1 softphone na linha
+            # Procuramos dinamicamente a coluna de softphones
+            col_softphone = None
+            for col in df_cre_atual.columns:
+                if "soft" in str(col).lower():
+                    col_softphone = col
+                    break
+            
+            if col_softphone is not None:
+                for idx in df_cre_atual.index:
+                    val_soft = str(df_cre_atual.loc[idx, col_softphone]).strip().lower()
+                    
+                    tem_softphone = False
+                    # Verifica se o valor indica que existe 1 ou mais softphones ativos
+                    if val_soft and val_soft not in ["0", "0.0", "não", "nao", "", "nan"]:
+                        try:
+                            # Se for numérico, valida se é pelo menos 1
+                            if float(val_soft) >= 1:
+                                tem_softphone = True
+                        except ValueError:
+                            # Se for texto afirmativo (ex: "Sim", "Ativo"), assume verdadeiro
+                            tem_softphone = True
+                    
+                    # Se NÃO tiver softphone, limpa as informações de ramal e nome na Coluna C (Índice 2)
+                    if not tem_softphone:
+                        df_cre_atual.iloc[idx, 2] = ""
+
+        # Remove linhas completamente nulas que possam ter sobrado
+        df_cre_atual = df_cre_atual.dropna(how='all')
 
         st.dataframe(df_cre_atual.astype(str), use_container_width=True, hide_index=True)
 
