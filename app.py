@@ -4,20 +4,18 @@ import re
 import io
 import unicodedata
 import os
-# Configuração correta do Proxy com Autenticação
-# Substitui 'Pi' pela tua senha real do Windows/Rede se 'Pi' tiver sido apenas um exemplo.
-os.environ["HTTP_PROXY"] = "http://joao-flores:Pi@proxy.seduc.intra.rs.gov.br:3128"
-os.environ["HTTPS_PROXY"] = "http://joao-flores:Picol&22@proxy.seduc.intra.rs.gov.br:3128"
 
-import streamlit as st
-import pandas as pd
-import re
-import io
-import unicodedata
+# =====================================================================
+# CONFIGURAÇÕES DE REDE E SEGURANÇA (Ajustado para proteger os seus dados)
+# =====================================================================
 
-# ==========================================
-# CONFIGURAÇÕES INICIAIS E SEGURANÇA
-# ==========================================
+# 1. Configuração do Proxy (Apenas o endereço do servidor, sem expor o seu usuário/senha)
+os.environ["HTTP_PROXY"] = "http://proxy.seduc.intra.rs.gov.br:3128"
+os.environ["HTTPS_PROXY"] = "http://proxy.seduc.intra.rs.gov.br:3128"
+
+# 2. Garante que o Python ignore o proxy para comunicações locais do Streamlit
+os.environ["NO_PROXY"] = "localhost,127.0.0.1,127.0.0.1:8501,localhost:8501"
+
 SENHA_DO_PAINEL = "senha123"
 URL_DA_PLANILHA = "https://docs.google.com/spreadsheets/d/1c0UKQiMhQdz1GPBQYC4q3SItdDxKNXKffVZF231Z8L4/edit?gid=79367712#gid=79367712"
 
@@ -327,7 +325,6 @@ try:
             df_cre_atual.iloc[0, 1] = valor_linha_2  # Restaura apenas na Linha 2 (Pandas Index 0)
 
             # Regra 2: Na coluna C (Índice 2), Ramal/Nome só aparecem se houver >= 1 softphone na linha
-            # Procuramos dinamicamente a coluna de softphones
             col_softphone = None
             for col in df_cre_atual.columns:
                 if "soft" in str(col).lower():
@@ -339,23 +336,17 @@ try:
                     val_soft = str(df_cre_atual.loc[idx, col_softphone]).strip().lower()
                     
                     tem_softphone = False
-                    # Verifica se o valor indica que existe 1 ou mais softphones ativos
                     if val_soft and val_soft not in ["0", "0.0", "não", "nao", "", "nan"]:
                         try:
-                            # Se for numérico, valida se é pelo menos 1
                             if float(val_soft) >= 1:
                                 tem_softphone = True
                         except ValueError:
-                            # Se for texto afirmativo (ex: "Sim", "Ativo"), assume verdadeiro
                             tem_softphone = True
                     
-                    # Se NÃO tiver softphone, limpa as informações de ramal e nome na Coluna C (Índice 2)
                     if not tem_softphone:
                         df_cre_atual.iloc[idx, 2] = ""
 
-        # Remove linhas completamente nulas que possam ter sobrado
         df_cre_atual = df_cre_atual.dropna(how='all')
-
         st.dataframe(df_cre_atual.astype(str), use_container_width=True, hide_index=True)
 
 
