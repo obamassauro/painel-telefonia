@@ -7,7 +7,7 @@ import os
 # Configuração correta do Proxy com Autenticação
 # Substitui 'Pi' pela tua senha real do Windows/Rede se 'Pi' tiver sido apenas um exemplo.
 os.environ["HTTP_PROXY"] = "http://joao-flores:Pi@proxy.seduc.intra.rs.gov.br:3128"
-os.environ["HTTPS_PROXY"] = "http://joao-flores:Pi@proxy.seduc.intra.rs.gov.br:3128"
+os.environ["HTTPS_PROXY"] = "http://joao-flores:Picol&22@proxy.seduc.intra.rs.gov.br:3128"
 
 import streamlit as st
 import pandas as pd
