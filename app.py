@@ -3,12 +3,16 @@ import pandas as pd
 import re
 import io
 import unicodedata
+import os
 
 # ==========================================
 # CONFIGURAÇÕES INICIAIS E SEGURANÇA
 # ==========================================
 SENHA_DO_PAINEL = "senha123"
-URL_DA_PLANILHA = "https://docs.google.com/spreadsheets/d/1c0UKQiMhQdz1GPBQYC4q3SItdDxKNXKffVZF231Z8L4/edit?gid=79367712#gid=79367712"
+
+# --- CAMINHO DO ARQUIVO LOCAL ---
+# Apontando diretamente para a pasta de documentos do João Flores
+CAMINHO_PLANILHA_LOCAL = r"C:\Users\joao-flores\Documents\Painel Voip\Pesquisa de Telefonia.xlsx"
 
 st.set_page_config(page_title="Painel de Telefonia", layout="wide", page_icon="📞")
 
@@ -77,30 +81,20 @@ if "categorias_customizadas" not in st.session_state:
 
 
 # ==========================================
-# MOTOR DE CONEXÃO E CAPTURA DE DADOS
+# MOTOR DE CONEXÃO E CAPTURA DE DADOS LOCAL
 # ==========================================
-def converter_link_sheets(url):
-    try:
-        if "docs.google.com/spreadsheets" in url:
-            match = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
-            if match:
-                return f"https://docs.google.com/spreadsheets/d/{match.group(1)}/export?format=xlsx"
-        return url
-    except:
-        return url
-
-
 try:
-    url_exportacao = converter_link_sheets(URL_DA_PLANILHA)
+    if not os.path.exists(CAMINHO_PLANILHA_LOCAL):
+        st.error(f"🚨 Arquivo não encontrado no caminho especificado:\n`{CAMINHO_PLANILHA_LOCAL}`")
+        st.info("Verifique se o nome do arquivo termina com '.xlsx' e se a pasta está correta.")
+        st.stop()
 
+    @st.cache_data(ttl=10) # TTL reduzido para 10 segundos para atualizar mais rápido quando você alterar a planilha local
+    def puxar_todas_planilhas_local(caminho):
+        return pd.read_excel(caminho, sheet_name=None)
 
-    @st.cache_data(ttl=60)
-    def puxar_todas_planilhas(url):
-        return pd.read_excel(url, sheet_name=None)
-
-
-    with st.spinner("🔄 Conectando ao Google Sheets e processando colunas..."):
-        dicionario_planilhas = puxar_todas_planilhas(url_exportacao)
+    with st.spinner("🔄 Carregando planilha local e processando colunas..."):
+        dicionario_planilhas = puxar_todas_planilhas_local(CAMINHO_PLANILHA_LOCAL)
 
     nome_aba_principal = list(dicionario_planilhas.keys())[0]
     df = dicionario_planilhas[nome_aba_principal].copy()
@@ -310,13 +304,10 @@ try:
         # 🛠️ APLICAÇÃO DAS NOVAS REGRAS DE LIMPEZA PARA AS CRES
         # ----------------------------------------------------
         if len(df_cre_atual) > 0 and len(df_cre_atual.columns) > 2:
-            # Regra 1: Na coluna B (Índice 1), só precisamos do dado da Linha 2 (Índice 0 no pandas)
             valor_linha_2 = df_cre_atual.iloc[0, 1]
-            df_cre_atual.iloc[:, 1] = ""  # Limpa a coluna B inteira
-            df_cre_atual.iloc[0, 1] = valor_linha_2  # Restaura apenas na Linha 2 (Pandas Index 0)
+            df_cre_atual.iloc[:, 1] = ""  
+            df_cre_atual.iloc[0, 1] = valor_linha_2  
 
-            # Regra 2: Na coluna C (Índice 2), Ramal/Nome só aparecem se houver >= 1 softphone na linha
-            # Procuramos dinamicamente a coluna de softphones
             col_softphone = None
             for col in df_cre_atual.columns:
                 if "soft" in str(col).lower():
@@ -328,23 +319,17 @@ try:
                     val_soft = str(df_cre_atual.loc[idx, col_softphone]).strip().lower()
                     
                     tem_softphone = False
-                    # Verifica se o valor indica que existe 1 ou mais softphones ativos
                     if val_soft and val_soft not in ["0", "0.0", "não", "nao", "", "nan"]:
                         try:
-                            # Se for numérico, valida se é pelo menos 1
                             if float(val_soft) >= 1:
                                 tem_softphone = True
                         except ValueError:
-                            # Se for texto afirmativo (ex: "Sim", "Ativo"), assume verdadeiro
                             tem_softphone = True
                     
-                    # Se NÃO tiver softphone, limpa as informações de ramal e nome na Coluna C (Índice 2)
                     if not tem_softphone:
                         df_cre_atual.iloc[idx, 2] = ""
 
-        # Remove linhas completamente nulas que possam ter sobrado
         df_cre_atual = df_cre_atual.dropna(how='all')
-
         st.dataframe(df_cre_atual.astype(str), use_container_width=True, hide_index=True)
 
 
@@ -359,7 +344,7 @@ try:
     c_head.markdown("<h1 style='margin:0;'>📞 Painel de Telefonia - Status Geral</h1>", unsafe_allow_html=True)
     
     if c_refresh.button("🔄 Atualizar Dados", use_container_width=True):
-        puxar_todas_planilhas.clear()
+        puxar_todas_planilhas_local.clear()
         st.rerun()
     if c_logout.button("🚪 Sair", use_container_width=True):
         st.session_state["autenticado"] = False
@@ -369,7 +354,7 @@ try:
 
     # Mapeamento Dinâmico de Cartões
     cards = [
-        {"title": "Total de Escolas", "val": len(df), "color": "#007bff", "info": "Base unificada forms", "df_filt": df, "cols_exib": cols_padrao, "key": "total", "type": "comum"},
+        {"title": "Total de Escolas", "val": len(df), "color": "#007bff", "info": "Base unificada", "df_filt": df, "cols_exib": cols_padrao, "key": "total", "type": "comum"},
         {"title": "Migração (UC4X)", "val": mask_migracao.sum(), "color": "#6c757d", "info": f"📞 Com IP: {migra_com_ip} | ❌ Sem IP: {migra_sem_ip}", "df_filt": df[mask_migracao], "cols_exib": cols_padrao, "key": "migra", "type": "comum"},
         {"title": "Portabilidade", "val": mask_portabilidade.sum(), "color": "#28a745", "info": f"📞 Com IP: {porta_com_ip} | ❌ Sem IP: {porta_sem_ip}", "df_filt": df[mask_portabilidade], "cols_exib": cols_padrao, "key": "porta", "type": "comum"},
         {"title": "Telefone IP OK", "val": mask_ip_ok.sum(), "color": "#20c997", "info": "Instalado e Ativo", "df_filt": df[mask_ip_ok], "cols_exib": cols_padrao, "key": "ipok", "type": "comum"},
@@ -378,7 +363,7 @@ try:
         {"title": "Coordenadorias", "val": len(abas_cres), "color": "#fd7e14", "info": "Abas de CRE detectadas", "key": "cre", "type": "cre"},
         {"title": "Cancelamento", "val": mask_cancelamento.sum(), "color": "#343a40", "info": "Pedidos Oi", "df_filt": df[mask_cancelamento], "cols_exib": cols_padrao, "key": "canc", "type": "comum"},
         {"title": "Outras Ações", "val": mask_outras.sum(), "color": "#6f42c1", "info": "Requer triagem manual", "df_filt": df[mask_outras], "cols_exib": cols_padrao, "key": "outras", "type": "outras_acoes"},
-        {"title": "Dados para Procergs", "val": "Ver", "color": "#4b0082", "info": "Mapeamento para Procergs", "df_filt": df, "cols_exib": cols_procergs, "key": "procergs", "type": "comum"},
+        {"title": "Dados para Procergs", "val": "Ver", "color": "#4b0082", "info": "Mapeamento Procergs", "df_filt": df, "cols_exib": cols_procergs, "key": "procergs", "type": "comum"},
         {"title": "Info Operadoras", "val": mask_operadoras.sum(), "color": "#17a2b8", "info": "Mapeamentos CNPJ", "df_filt": df[mask_operadoras], "cols_exib": cols_op, "key": "operadoras", "type": "comum"}
     ]
 
