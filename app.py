@@ -8,7 +8,6 @@ import unicodedata
 # CONFIGURAÇÕES INICIAIS E SEGURANÇA
 # ==========================================
 SENHA_DO_PAINEL = "senha123"
-URL_DA_PLANILHA = "https://docs.google.com/spreadsheets/d/1c0UKQiMhQdz1GPBQYC4q3SItdDxKNXKffVZF231Z8L4/edit?gid=79367712#gid=79367712"
 
 st.set_page_config(page_title="Painel de Telefonia", layout="wide", page_icon="📞")
 
@@ -31,7 +30,6 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-
 def criar_card_html(titulo, valor, cor_topo, info_extra=""):
     return f"""
     <div style="
@@ -50,7 +48,6 @@ def criar_card_html(titulo, valor, cor_topo, info_extra=""):
         <div style="color: #868e96; font-size: 11px; font-weight: 500; line-height: 1.4;">{info_extra}</div>
     </div>
     """
-
 
 # Autenticação de Acesso
 if "autenticado" not in st.session_state:
@@ -75,32 +72,25 @@ if "triagem_manual" not in st.session_state:
 if "categorias_customizadas" not in st.session_state:
     st.session_state["categorias_customizadas"] = []
 
-
 # ==========================================
-# MOTOR DE CONEXÃO E CAPTURA DE DADOS
+# 📂 NOVO MOTOR: UPLOAD MANUAL DA PLANILHA
 # ==========================================
-def converter_link_sheets(url):
-    try:
-        if "docs.google.com/spreadsheets" in url:
-            match = re.search(r"/d/([a-zA-Z0-9-_]+)", url)
-            if match:
-                return f"https://docs.google.com/spreadsheets/d/{match.group(1)}/export?format=xlsx"
-        return url
-    except:
-        return url
+st.markdown("### 📥 Carregamento de Dados")
+st.info("Devido aos bloqueios de rede, faça o download da planilha do Google Sheets no formato Excel (.xlsx) e arraste-a aqui para baixo.")
 
+arquivo_carregado = st.file_uploader("Faça upload da Planilha de Telefonia (.xlsx)", type=["xlsx"])
+
+if arquivo_carregado is None:
+    st.warning("⚠️ Aguardando o envio do arquivo para gerar o painel...")
+    st.stop() # Para a execução aqui até que o arquivo seja colocado
 
 try:
-    url_exportacao = converter_link_sheets(URL_DA_PLANILHA)
+    @st.cache_data(ttl=300)
+    def ler_planilha_local(arquivo):
+        return pd.read_excel(arquivo, sheet_name=None)
 
-
-    @st.cache_data(ttl=60)
-    def puxar_todas_planilhas(url):
-        return pd.read_excel(url, sheet_name=None)
-
-
-    with st.spinner("🔄 Conectando ao Google Sheets e processando colunas..."):
-        dicionario_planilhas = puxar_todas_planilhas(url_exportacao)
+    with st.spinner("🔄 Processando dados da planilha..."):
+        dicionario_planilhas = ler_planilha_local(arquivo_carregado)
 
     nome_aba_principal = list(dicionario_planilhas.keys())[0]
     df = dicionario_planilhas[nome_aba_principal].copy()
@@ -117,13 +107,11 @@ try:
         for c in df.columns
     ]
 
-
     def mapear_coluna(termos_chave):
         for original, limpa in zip(df.columns.tolist(), colunas_limpas):
             if any(t in limpa for t in termos_chave):
                 return original
         return None
-
 
     col_escola = mapear_coluna(["nome da escola", "escola"])
     col_idt = mapear_coluna(["idt da escola", "idt"])
@@ -221,7 +209,6 @@ try:
     migra_sem_ip = (mask_migracao & mask_sem_ip).sum()
     porta_com_ip = (mask_portabilidade & mask_ip_ok).sum()
     porta_sem_ip = (mask_portabilidade & mask_sem_ip).sum()
-
 
     # ==========================================
     # JANELAS FLUTUANTES (MODAIS)
@@ -347,7 +334,6 @@ try:
 
         st.dataframe(df_cre_atual.astype(str), use_container_width=True, hide_index=True)
 
-
     cols_padrao = ['Status'] + [c for c in [col_escola, col_idt, col_cre, col_telefone, col_obs] if c is not None]
     cols_procergs = ['Status'] + [c for c in [col_escola, col_idt, col_novo_num, col_operadora] if c is not None]
     cols_op = ['Status'] + [c for c in [col_escola, col_operadora, col_novo_num, col_telefone] if c is not None]
@@ -359,7 +345,6 @@ try:
     c_head.markdown("<h1 style='margin:0;'>📞 Painel de Telefonia - Status Geral</h1>", unsafe_allow_html=True)
     
     if c_refresh.button("🔄 Atualizar Dados", use_container_width=True):
-        puxar_todas_planilhas.clear()
         st.rerun()
     if c_logout.button("🚪 Sair", use_container_width=True):
         st.session_state["autenticado"] = False
