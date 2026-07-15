@@ -153,7 +153,9 @@ try:
     if col_portabilidade: mask_portabilidade = mask_portabilidade | get_mask(col_portabilidade, "sim")
 
     mask_cancelamento = get_mask(col_acao_realizada, "cancel")
-    mask_outras = get_mask(col_acao_realizada, "outr")
+
+    # 🔥 A MUDANÇA CRÍTICA: Filtramos e retiramos de "Outros" tudo que já é migração, portabilidade ou cancelamento
+    mask_outras = get_mask(col_acao_realizada, "outr") & ~mask_migracao & ~mask_portabilidade & ~mask_cancelamento
 
     mask_ip_ok = get_mask(col_funciona_ip, "sim")
     mask_ip_nao_inst = get_mask(col_recebeu_ip, "sim") & ~get_mask(col_funciona_ip, "sim")
@@ -297,17 +299,15 @@ try:
         cre_selecionada = st.selectbox("Escolha a CRE para carregar os ramais:", list(abas_cres.keys()))
         df_cre_atual = abas_cres[cre_selecionada].copy()
         
-        # 🔥 A CORREÇÃO CRÍTICA: Tratamento de colunas vazias e mescladas
+        # Tratamento de colunas vazias e mescladas
         novas_cols = []
         for c in df_cre_atual.columns:
             nome = "" if "Unnamed" in str(c) else str(c)
-            # Garante que colunas duplicadas recebam um espaço "invisível" para não travar o Streamlit
             while nome in novas_cols:
                 nome += " "
             novas_cols.append(nome)
         df_cre_atual.columns = novas_cols
 
-        # Converte para string para garantir compatibilidade contra tipos mistos na exibição
         st.dataframe(df_cre_atual.astype(str), use_container_width=True, hide_index=True)
 
 
@@ -330,7 +330,7 @@ try:
 
     st.write("---")
 
-    # Mapeamento Dinâmico de Cartões (Layout modular, limpo e à prova de bugs)
+    # Mapeamento Dinâmico de Cartões
     cards = [
         {"title": "Total de Escolas", "val": len(df), "color": "#007bff", "info": "Base unificada forms", "df_filt": df, "cols_exib": cols_padrao, "key": "total", "type": "comum"},
         {"title": "Migração (UC4X)", "val": mask_migracao.sum(), "color": "#6c757d", "info": f"📞 Com IP: {migra_com_ip} | ❌ Sem IP: {migra_sem_ip}", "df_filt": df[mask_migracao], "cols_exib": cols_padrao, "key": "migra", "type": "comum"},
@@ -345,7 +345,7 @@ try:
         {"title": "Info Operadoras", "val": mask_operadoras.sum(), "color": "#17a2b8", "info": "Mapeamentos CNPJ", "df_filt": df[mask_operadoras], "cols_exib": cols_op, "key": "operadoras", "type": "comum"}
     ]
 
-    # Distribuição e Desenho Dinâmico em Grelhas de 5 Colunas (Evita repetição de código)
+    # Grelha de 5 Colunas
     for i in range(0, len(cards), 5):
         cols_grid = st.columns(5)
         for idx_col, card in enumerate(cards[i:i+5]):
